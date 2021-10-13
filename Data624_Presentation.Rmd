@@ -1,0 +1,232 @@
+---
+title: "Data624_Presentation"
+author: "Alexis Mekueko"
+date: "10/12/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r load-packages, results='hide',warning=FALSE, message=FALSE, echo=FALSE}
+
+library(knitr)
+#library(markdown)
+#library(rmarkdown)
+library(dplyr)
+library(ggplot2)
+#library(qqplotr)
+library(stats)
+library(statsr)
+library(GGally)
+library(pdftools)
+library(correlation)
+
+
+#install.packages("fpp3", dependencies = TRUE)
+library(fpp3)
+#install.packages("fpp2", dependencies = TRUE)
+library(fpp2)
+#install.packages("lubridate", dependencies = TRUE)
+library(lubridate)
+#install.packages("tsibble", dependencies = TRUE)
+library(tsibble)
+library(tsibbledata)
+#install.packages("USgas", dependencies = TRUE)
+#install.packages('Rcpp')
+
+library(USgas)
+library(MASS)
+library(forecast)
+set.seed(34332)
+
+```
+
+
+[Github Link](https://github.com/asmozo24/Data624_HW5)
+[Web Link](https://rpubs.com/amekueko/821277)
+
+## Exponential Smoothing Forecasting Method
+
+1. Simple Exponential Smoothing
+```{r mychuncks12c}
+
+###
+??global_economy ##Economic indicators featured by the World Bank from 1960 to 2017​
+#Variables: GDP, Growth, CPI, Imports, Exports, Population​
+
+# create data frame
+algeria_economy <- global_economy %>%
+                   filter(Country == "Algeria")#%>%
+                   #mutate(GDP = round(GDP,5))%>%
+                   #mutate(Exports_R = round(((GDP*Exports)/100), 5))%>%
+                   #dplyr::select(Year, GDP, Exports)
+
+algeria_economy %>%
+                autoplot(Exports) +
+                labs(y = "Exports in % of GDP", title = "Algeria Exports of goods and services relatively to GDP from 1960 to 2017")
+
+# Estimate parameters
+fit <- algeria_economy %>%
+  model(ETS(Exports ~ error("A") + trend("N") + season("N")))
+fc <- fit %>%
+  forecast(h = 5)
+fc %>%
+  autoplot(algeria_economy) +
+  geom_line(aes(y = .fitted), col="#D55E00",
+            data = augment(fit)) +
+  labs(y = "Exports in % of GDP", title = "Algeria Exports of goods and services relatively to GDP from 1960 to 2017") +
+  guides(colour = "none")
+#alpha parameter
+
+tidy(fit)
+
+#Another way of calling simple exponential smoothing
+algeria_eco <- ses(algeria_economy$Exports, alpha = .2, h = 5)
+autoplot(algeria_eco)
+algeria_eco$model #parameter
+
+
+```
+
+2. Double Exponential Smoothing
+
+```{r mychuncks12s2}
+
+#head(aus_livestock)
+aus_economy <- global_economy %>%
+  filter(Code == "AUS") %>%
+  mutate(Pop = Population / 1e6)
+autoplot(aus_economy, Pop) +
+  labs(y = "Population in Millions", title = "Australian Total Population from 1960 to 2017")
+
+fit <- aus_economy %>%
+  model(
+    AAN = ETS(Pop ~ error("A") + trend("A") + season("N"))
+  )
+
+fc <- fit %>% 
+          forecast(h = 10)
+aus_economy %>%
+  model(
+    `Holt's method` = ETS(Pop ~ error("A") +
+                       trend("A") + season("N")),
+    #`Damped Holt's method` = ETS(Pop ~ error("A") +
+    #                   trend("Ad", phi = 0.9) + season("N"))
+  ) %>%
+  forecast(h = 15) %>%
+  autoplot(aus_economy, level = NULL) + #geom_line(aes(y = .fitted), col="#D55E00",data = augment(fit))+
+  labs(y = "Population in Millions", title = "Australian Total Population from 1960 to 2017")
+# + guides(fill = guide_legend(title = "Forecast", label.position = "left"))
+
+tidy(fit)
+
+
+
+```
+
+3. Triple Exponential Smoothing
+
+```{r mychuncks14ew}
+
+#head(aus_livestock)
+aus_holidays <- tourism %>%
+  filter(Purpose == "Holiday") %>%
+  summarise(Trips = sum(Trips)/1e3)
+fit <- aus_holidays %>%
+  model(
+    additive = ETS(Trips ~ error("A") + trend("A") +
+                                                season("A")),
+    multiplicative = ETS(Trips ~ error("M") + trend("A") +
+                                                season("M"))
+  )
+fc <- fit %>% forecast(h = "3 years")
+fc %>%
+  autoplot(aus_holidays, level = NULL) +
+  labs(title="Australian domestic tourism",
+       y="Overnight trips (millions)") +
+  guides(colour = guide_legend(title = "Forecast"))
+tidy(fit)
+
+```
+
+## Adiditive Vs. Multiplicative
+## Measuring the quality of forecast method (forecast accuracy)
+
+```{r}
+# Australia tourism
+fit <- aus_holidays %>%
+  model(
+    ses = ETS(Trips ~ error("A") + trend("N") + season("N")),
+
+    additive = ETS(Trips ~ error("A") + trend("A") +
+                                                season("A")),
+    multiplicative = ETS(Trips ~ error("M") + trend("A") +
+                                                season("M"))
+  )
+fc <- fit %>% forecast(h = "3 years")
+fc %>%
+  autoplot(aus_holidays, level = NULL) +
+  labs(title="Australian domestic tourism",
+       y="Overnight trips (millions)") +
+  guides(colour = guide_legend(title = "Forecast"))
+
+
+## Summary of measured quality for Australia tourism
+aus_holidays %>%
+  stretch_tsibble(.init = 10) %>%
+  model(
+    ses = ETS(Trips ~ error("A") + trend("N") + season("N")),
+    additive = ETS(Trips ~ error("A") + trend("A") +
+                                                season("A")),
+    multiplicative = ETS(Trips ~ error("M") + trend("A") +
+                                                season("M")),
+    Damped = ETS(Trips ~ error("A") + trend("Ad") +
+                   season("N"))
+  ) %>%
+  forecast(h = 1) %>%
+  accuracy(aus_holidays)
+
+# Algeria_economy
+fit_A <- algeria_economy %>%
+  model(
+    ses = ETS(Exports ~ error("A") + trend("N") + season("N")),
+
+    additive = ETS(Exports ~ error("A") + trend("A") +
+                                                season("A")),
+    multiplicative = ETS(Exports ~ error("M") + trend("A") +
+                                                season("M"))
+  )
+fc_A <- fit_A %>% forecast(h = "3 years")
+fc_A %>%
+  autoplot(algeria_economy, level = NULL) +
+  labs(y = "Exports in % of GDP", title = "Algeria Exports of goods and services relatively to GDP from 1960 to 2017") +
+  guides(colour = guide_legend(title = "Forecast"))
+
+
+## Summary of measured quality Algeria_economy
+# MAD = Mean absolute deviation
+# MAPE = Mean absolute percentate error
+# MSE = Mean squared error
+# RMSE = Root mean squared error ...smaller = better
+algeria_economy %>%
+  stretch_tsibble(.init = 10) %>%
+  model(
+    ses = ETS(Exports ~ error("A") + trend("N") + season("N")),
+    additive = ETS(Exports ~ error("A") + trend("A") +
+                                                season("A")),
+    multiplicative = ETS(Exports ~ error("M") + trend("A") +
+                                                season("M")),
+    Damped = ETS(Exports ~ error("A") + trend("Ad") +
+                   season("N"))
+  ) %>%
+  forecast(h = 1) %>%
+  accuracy(algeria_economy)
+
+
+
+```
+
